@@ -9,6 +9,8 @@ module.exports = {
       name: '@electron-forge/maker-squirrel',
       config: {
         name: 'hc_ssh',
+        authors: 'Henry Chang',
+        description: 'Modern SSH terminal manager with AI assistance',
       },
     },
     {

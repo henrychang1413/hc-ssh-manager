@@ -3,6 +3,7 @@ import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import 'xterm/css/xterm.css';
 import { io, Socket } from 'socket.io-client';
+import { Copy, Clipboard, Terminal as TerminalIcon } from 'lucide-react';
 import { SSHConnection, Script, TerminalSettings } from '../types';
 
 export interface TerminalHandle {
@@ -22,6 +23,7 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalComponentProps>(({ 
   const xtermRef = useRef<Terminal | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const [status, setStatus] = React.useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [contextMenu, setContextMenu] = React.useState<{ x: number, y: number } | null>(null);
   const statusRef = useRef<'connecting' | 'connected' | 'disconnected'>('connecting');
   const inactivityTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -177,7 +179,20 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalComponentProps>(({ 
       }
     });
 
+    const handleContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      setContextMenu({ x: e.clientX, y: e.clientY });
+    };
+
+    const terminalEl = terminalRef.current;
+    if (terminalEl) {
+      terminalEl.addEventListener('contextmenu', handleContextMenu);
+    }
+
     return () => {
+      if (terminalEl) {
+        terminalEl.removeEventListener('contextmenu', handleContextMenu);
+      }
       resizeObserver.disconnect();
       if (socketRef.current) socketRef.current.disconnect();
       if (inactivityTimerRef.current) clearTimeout(inactivityTimerRef.current);
@@ -185,9 +200,98 @@ const TerminalComponent = forwardRef<TerminalHandle, TerminalComponentProps>(({ 
     };
   }, [connection, settings.fontSize, settings.fontFamily]);
 
+  const handleCopySelection = () => {
+    if (xtermRef.current) {
+      const selection = xtermRef.current.getSelection();
+      if (selection) {
+        navigator.clipboard.writeText(selection);
+      }
+    }
+    setContextMenu(null);
+  };
+
+  const handleCopyCurrentLine = () => {
+    if (xtermRef.current) {
+      const buffer = xtermRef.current.buffer.active;
+      const line = buffer.getLine(buffer.cursorY + buffer.baseY);
+      if (line) {
+        navigator.clipboard.writeText(line.translateToString().trimEnd());
+      }
+    }
+    setContextMenu(null);
+  };
+
+  const handlePaste = async (execute: boolean = false) => {
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text && socketRef.current?.connected) {
+        let content = text;
+        if (execute && !content.endsWith('\n') && !content.endsWith('\r')) {
+          content += '\r';
+        }
+        socketRef.current.emit('ssh-input', content);
+        resetInactivityTimer();
+      }
+    } catch (err) {
+      console.error('Failed to read clipboard:', err);
+    }
+    setContextMenu(null);
+  };
+
+  const getMenuPosition = () => {
+    if (!contextMenu) return {};
+    
+    const menuWidth = 180;
+    const menuHeight = 160;
+    let { x, y } = contextMenu;
+    
+    if (x + menuWidth > window.innerWidth) x -= menuWidth;
+    if (y + menuHeight > window.innerHeight) y -= menuHeight;
+    
+    return { top: y, left: x };
+  };
+
   return (
-    <div className="w-full h-full bg-[#1a1b26] p-2 overflow-hidden">
+    <div className="w-full h-full bg-[#1a1b26] p-2 overflow-hidden relative" onClick={() => setContextMenu(null)}>
       <div ref={terminalRef} className="w-full h-full" />
+      
+      {contextMenu && (
+        <div 
+          className="fixed z-50 bg-[#24283b] border border-[#414868] rounded shadow-xl py-1 min-w-[180px]"
+          style={getMenuPosition()}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button 
+            className="w-full text-left px-4 py-2 text-sm text-[#a9b1d6] hover:bg-[#414868] transition-colors flex items-center gap-2"
+            onClick={handleCopySelection}
+          >
+            <Copy size={14} />
+            <span>复制选中内容</span>
+          </button>
+          <button 
+            className="w-full text-left px-4 py-2 text-sm text-[#a9b1d6] hover:bg-[#414868] transition-colors flex items-center gap-2"
+            onClick={handleCopyCurrentLine}
+          >
+            <TerminalIcon size={14} />
+            <span>复制当前行</span>
+          </button>
+          <div className="h-[1px] bg-[#414868] my-1" />
+          <button 
+            className="w-full text-left px-4 py-2 text-sm text-[#a9b1d6] hover:bg-[#414868] transition-colors flex items-center gap-2"
+            onClick={() => handlePaste(false)}
+          >
+            <Clipboard size={14} />
+            <span>粘贴</span>
+          </button>
+          <button 
+            className="w-full text-left px-4 py-2 text-sm text-[#a9b1d6] hover:bg-[#414868] transition-colors flex items-center gap-2"
+            onClick={() => handlePaste(true)}
+          >
+            <Clipboard size={14} className="text-emerald-400" />
+            <span>粘贴并执行</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 });
