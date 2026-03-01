@@ -1,0 +1,5 @@
+{
+  "name": "HC-SSH Manager",
+  "description": "A professional multi-tabbed SSH client manager with credential storage, terminal emulation, and script management.",
+  "requestFramePermissions": []
+}
